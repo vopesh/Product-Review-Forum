@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+sqlalchemy
+asyncpg
+email-validator
+pydantic-settings
+imagekitio
+tenacity
+python-multipart
+pwdlib[bcrypt]
+PyJWT
+streamlit
