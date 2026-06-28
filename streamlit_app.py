@@ -2,14 +2,31 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from html import escape
+import os
+from pathlib import Path
 import re
+import uuid
 from typing import Any
 
 import requests
 import streamlit as st
 
 
-DEFAULT_API_BASE_URL = "http://localhost:8000"
+LOCAL_API_URL_FILE = Path(".local_api_url")
+
+
+def default_api_base_url() -> str:
+    env_url = os.getenv("API_BASE_URL")
+    if env_url:
+        return env_url.rstrip("/")
+    if LOCAL_API_URL_FILE.exists():
+        local_url = LOCAL_API_URL_FILE.read_text(encoding="utf-8").strip()
+        if local_url:
+            return local_url.rstrip("/")
+    return "http://localhost:8000"
+
+
+DEFAULT_API_BASE_URL = default_api_base_url()
 IMAGE_TYPES = {"photo", "image"}
 VIDEO_TYPES = {"video"}
 URL_PATTERN = re.compile(r"(https?://[^\s<]+)")
@@ -456,6 +473,45 @@ def inject_styles() -> None:
             text-decoration: underline;
         }
 
+        div[class*="st-key-like_"] button,
+        div[class*="st-key-like-"] button,
+        div[class*="st-key-dislike_"] button,
+        div[class*="st-key-dislike-"] button {
+            min-height: 1.85rem;
+            padding: 0.1rem 0.45rem;
+            border-radius: 999px;
+            font-size: .78rem;
+            box-shadow: none;
+        }
+
+        div[class*="st-key-like_"] button[kind="secondary"],
+        div[class*="st-key-like-"] button[kind="secondary"],
+        div[class*="st-key-dislike_"] button[kind="secondary"],
+        div[class*="st-key-dislike-"] button[kind="secondary"] {
+            background: #f8fafc !important;
+            border-color: var(--line) !important;
+            color: #334155 !important;
+        }
+
+        div[class*="st-key-delete_comment_"] button,
+        div[class*="st-key-delete-comment-"] button {
+            min-height: 1.9rem;
+            width: 2rem;
+            padding: 0.1rem 0.25rem;
+            border-radius: 999px;
+            background: #fef2f2 !important;
+            border-color: #fecaca !important;
+            color: var(--danger) !important;
+            box-shadow: none;
+        }
+
+        div[class*="st-key-delete_comment_"] button:hover,
+        div[class*="st-key-delete-comment-"] button:hover {
+            background: var(--danger) !important;
+            border-color: var(--danger) !important;
+            color: #ffffff !important;
+        }
+
         div[data-testid="stRadio"] label p {
             color: #f59e0b;
             font-weight: 900;
@@ -480,9 +536,15 @@ def inject_styles() -> None:
 
 
 def init_state() -> None:
-    st.session_state.setdefault("api_base_url", DEFAULT_API_BASE_URL)
+    current_api_url = st.session_state.get("api_base_url", "")
+    if not current_api_url or (
+        current_api_url.startswith("http://localhost:800")
+        and current_api_url != DEFAULT_API_BASE_URL
+    ):
+        st.session_state.api_base_url = DEFAULT_API_BASE_URL
     st.session_state.setdefault("access_token", "")
     st.session_state.setdefault("current_user", None)
+    st.session_state.setdefault("anonymous_id", str(uuid.uuid4()))
     st.session_state.setdefault("selected_post_id", "")
     st.session_state.setdefault("current_view", "feed")
 
@@ -494,6 +556,12 @@ def api_url(path: str) -> str:
 def auth_headers() -> dict[str, str]:
     token = st.session_state.get("access_token")
     return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+def interaction_headers() -> dict[str, str]:
+    headers = auth_headers()
+    headers["X-Anonymous-Id"] = st.session_state.get("anonymous_id", "")
+    return headers
 
 
 @st.cache_resource
@@ -553,11 +621,18 @@ def friendly_error_message(status_code: int, message: Any) -> str:
     return "Something went wrong. Please try again."
 
 
-def request_json(method: str, path: str, **kwargs: Any) -> tuple[dict[str, Any] | list[Any] | None, str | None]:
+def request_json(
+    method: str, path: str, **kwargs: Any
+) -> tuple[dict[str, Any] | list[Any] | None, str | None]:
     try:
-        response = get_http_session().request(method, api_url(path), timeout=30, **kwargs)
+        response = get_http_session().request(
+            method, api_url(path), timeout=30, **kwargs
+        )
     except requests.RequestException:
-        return None, "Could not connect to the service. Please make sure the backend is running."
+        return (
+            None,
+            "Could not connect to the service. Please make sure the backend is running.",
+        )
 
     if response.status_code >= 400:
         message = _read_response_error(response)
@@ -574,8 +649,11 @@ def cached_get_json(
     path: str,
     params: tuple[tuple[str, Any], ...] = (),
     token: str = "",
+    anonymous_id: str = "",
 ) -> tuple[dict[str, Any] | list[Any] | None, str | None]:
     headers = {"Authorization": f"Bearer {token}"} if token else {}
+    if anonymous_id:
+        headers["X-Anonymous-Id"] = anonymous_id
     try:
         response = get_http_session().get(
             f"{api_base_url.rstrip('/')}{path}",
@@ -584,7 +662,10 @@ def cached_get_json(
             timeout=20,
         )
     except requests.RequestException:
-        return None, "Could not connect to the service. Please make sure the backend is running."
+        return (
+            None,
+            "Could not connect to the service. Please make sure the backend is running.",
+        )
 
     if response.status_code >= 400:
         message = _read_response_error(response)
@@ -603,7 +684,9 @@ def format_date(value: str | None) -> str:
     if not value:
         return "Unknown date"
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).strftime("%d %b %Y, %I:%M %p")
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).strftime(
+            "%d %b %Y, %I:%M %p"
+        )
     except ValueError:
         return value
 
@@ -677,6 +760,7 @@ def show_missing_review_fields_popup(missing: list[str]) -> None:
             st.rerun()
 
     if hasattr(st, "dialog"):
+
         @st.dialog("Complete required fields")
         def missing_fields_dialog() -> None:
             render_content()
@@ -723,7 +807,10 @@ def product_details_html(post: dict[str, Any]) -> str:
         ("Purchased from", post.get("purchase_source") or "Not provided"),
         ("Purchase date", compact_date(post.get("purchase_date"))),
         ("Country", post.get("purchase_country") or "Not provided"),
-        ("Rating", f'<span class="rating-stars">{rating_stars(post.get("rating"))}</span>'),
+        (
+            "Rating",
+            f'<span class="rating-stars">{rating_stars(post.get("rating"))}</span>',
+        ),
     ]
     rows = "".join(
         f'<div class="media-sub"><strong>{escape(label)}:</strong> {value if label == "Rating" else escape(str(value))}</div>'
@@ -737,13 +824,15 @@ def product_details_html(post: dict[str, Any]) -> str:
 
 def truncate(value: str | None, limit: int = 62) -> str:
     text = value or "Untitled"
-    return text if len(text) <= limit else f"{text[:limit - 1]}..."
+    return text if len(text) <= limit else f"{text[: limit - 1]}..."
 
 
 def user_display_name(user: dict[str, Any] | None) -> str:
     if not user:
         return "Guest"
-    full_name = " ".join(part for part in [user.get("first_name"), user.get("last_name")] if part)
+    full_name = " ".join(
+        part for part in [user.get("first_name"), user.get("last_name")] if part
+    )
     return full_name or user.get("email", "User")
 
 
@@ -751,7 +840,9 @@ def is_edit_window_open(value: str | None) -> bool:
     if not value:
         return False
     try:
-        editable_until = datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+        editable_until = datetime.fromisoformat(value.replace("Z", "+00:00")).replace(
+            tzinfo=None
+        )
     except ValueError:
         return False
     return datetime.now() <= editable_until
@@ -802,7 +893,9 @@ def register_user(email: str, password: str) -> None:
         st.error("Password must be at least 8 characters.")
         return
 
-    payload, error = request_json("POST", "/auth/register", json={"email": email, "password": password})
+    payload, error = request_json(
+        "POST", "/auth/register", json={"email": email, "password": password}
+    )
     if error:
         st.error(error)
         return
@@ -820,7 +913,9 @@ def login_user(email: str, password: str) -> None:
         st.error("Enter your email and password to sign in.")
         return
 
-    payload, error = request_json("POST", "/auth/login", data={"username": email, "password": password})
+    payload, error = request_json(
+        "POST", "/auth/login", data={"username": email, "password": password}
+    )
     if error:
         st.error(error)
         return
@@ -872,7 +967,7 @@ def handle_query_actions() -> None:
         logout_user()
 
 
-def fetch_feed(search: str, limit: int) -> list[dict[str, Any]]:
+def fetch_feed(search: str = "", limit: int = 40) -> list[dict[str, Any]]:
     params: dict[str, Any] = {"skip": 0, "limit": limit}
     if search:
         params["search"] = search
@@ -902,7 +997,12 @@ def fetch_my_posts(limit: int = 40) -> list[dict[str, Any]]:
 
 
 def fetch_comments(post_id: str) -> list[dict[str, Any]]:
-    payload, error = cached_get_json(st.session_state.api_base_url, f"/posts/{post_id}/comments")
+    payload, error = cached_get_json(
+        st.session_state.api_base_url,
+        f"/posts/{post_id}/comments",
+        token=st.session_state.get("access_token", ""),
+        anonymous_id=st.session_state.get("anonymous_id", ""),
+    )
     if error:
         st.warning(error)
         return []
@@ -910,10 +1010,13 @@ def fetch_comments(post_id: str) -> list[dict[str, Any]]:
 
 
 def create_comment(post_id: str, content: str) -> dict[str, Any] | None:
+    if not content.strip():
+        st.error("Enter a comment before posting.")
+        return None
     payload, error = request_json(
         "POST",
         f"/posts/{post_id}/comments",
-        headers=auth_headers(),
+        headers=interaction_headers(),
         json={"content": content.strip()},
     )
     if error:
@@ -921,6 +1024,20 @@ def create_comment(post_id: str, content: str) -> dict[str, Any] | None:
         return None
     st.success("Comment added.")
     return payload if isinstance(payload, dict) else None
+
+
+def react_to_comment(comment_id: str, reaction: str) -> bool:
+    _, error = request_json(
+        "POST",
+        f"/posts/comments/{comment_id}/reaction",
+        headers=interaction_headers(),
+        json={"reaction": reaction},
+    )
+    if error:
+        st.error(error)
+        return False
+    clear_read_cache()
+    return True
 
 
 def update_comment(comment_id: str, content: str) -> bool:
@@ -939,7 +1056,9 @@ def update_comment(comment_id: str, content: str) -> bool:
 
 
 def delete_comment(comment_id: str) -> bool:
-    _, error = request_json("DELETE", f"/posts/comments/{comment_id}", headers=auth_headers())
+    _, error = request_json(
+        "DELETE", f"/posts/comments/{comment_id}", headers=auth_headers()
+    )
     if error:
         st.error(error)
         return False
@@ -984,15 +1103,17 @@ def upload_post(
         "/posts/upload",
         headers=auth_headers(),
         files=files,
-        data=clean_form_data({
-            "caption": caption,
-            "product_name": normalize_optional(product_name),
-            "product_category": normalize_optional(product_category),
-            "purchase_source": normalize_optional(purchase_source),
-            "purchase_date": purchase_date.isoformat() if purchase_date else None,
-            "purchase_country": normalize_optional(purchase_country),
-            "rating": rating,
-        }),
+        data=clean_form_data(
+            {
+                "caption": caption,
+                "product_name": normalize_optional(product_name),
+                "product_category": normalize_optional(product_category),
+                "purchase_source": normalize_optional(purchase_source),
+                "purchase_date": purchase_date.isoformat() if purchase_date else None,
+                "purchase_country": normalize_optional(purchase_country),
+                "rating": rating,
+            }
+        ),
     )
     if error:
         st.error(error)
@@ -1057,15 +1178,25 @@ def render_sidebar() -> None:
                 st.session_state.selected_post_id = ""
                 st.rerun()
 
-            st.markdown('<div class="sidebar-bottom-spacer"></div>', unsafe_allow_html=True)
+            st.markdown(
+                '<div class="sidebar-bottom-spacer"></div>', unsafe_allow_html=True
+            )
             profile_col, signout_col = st.columns(2, gap="small")
             with profile_col:
                 with st.popover("Profile", use_container_width=True):
                     with st.form("profile_form"):
-                        st.text_input("Email", value=user.get("email", ""), disabled=True)
-                        first_name = st.text_input("First name", value=user.get("first_name") or "")
-                        last_name = st.text_input("Last name", value=user.get("last_name") or "")
-                        country = st.text_input("Country", value=user.get("country") or "")
+                        st.text_input(
+                            "Email", value=user.get("email", ""), disabled=True
+                        )
+                        first_name = st.text_input(
+                            "First name", value=user.get("first_name") or ""
+                        )
+                        last_name = st.text_input(
+                            "Last name", value=user.get("last_name") or ""
+                        )
+                        country = st.text_input(
+                            "Country", value=user.get("country") or ""
+                        )
                         submitted = st.form_submit_button("Update", width="stretch")
                     if submitted:
                         update_profile(first_name, last_name, country)
@@ -1079,7 +1210,9 @@ def render_sidebar() -> None:
         with tab_login:
             with st.form("login_form"):
                 email = st.text_input("Email", key="login_email")
-                password = st.text_input("Password", type="password", key="login_password")
+                password = st.text_input(
+                    "Password", type="password", key="login_password"
+                )
                 submitted = st.form_submit_button("Login", width="stretch")
             if submitted:
                 login_user(email, password)
@@ -1087,7 +1220,9 @@ def render_sidebar() -> None:
         with tab_register:
             with st.form("register_form"):
                 email = st.text_input("Email", key="register_email")
-                password = st.text_input("Password", type="password", key="register_password")
+                password = st.text_input(
+                    "Password", type="password", key="register_password"
+                )
                 submitted = st.form_submit_button("Create account", width="stretch")
             if submitted:
                 register_user(email, password)
@@ -1133,7 +1268,9 @@ def render_metrics(posts: list[dict[str, Any]]) -> None:
     ]
     for col, (label, value) in zip((c1, c2, c3, c4), metrics):
         with col:
-            value_class = "metric-value session-value" if label == "Session" else "metric-value"
+            value_class = (
+                "metric-value session-value" if label == "Session" else "metric-value"
+            )
             st.markdown(
                 f"""
                 <div class="metric-card">
@@ -1146,7 +1283,9 @@ def render_metrics(posts: list[dict[str, Any]]) -> None:
 
 
 def render_upload_panel() -> None:
-    st.markdown('<div class="section-title">Create review</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-title">Create review</div>', unsafe_allow_html=True
+    )
     with st.container(border=True):
         st.subheader("Post a product review")
         st.caption("Add a product image or video and write a short review.")
@@ -1214,7 +1353,9 @@ def render_upload_panel() -> None:
 
 
 def country_options_from_posts(posts: list[dict[str, Any]]) -> list[str]:
-    countries = sorted({post.get("purchase_country") for post in posts if post.get("purchase_country")})
+    countries = sorted(
+        {post.get("purchase_country") for post in posts if post.get("purchase_country")}
+    )
     return ["All", *countries]
 
 
@@ -1225,9 +1366,13 @@ def render_filters(
     title: str = "Reviews",
     include_country: bool = True,
 ) -> tuple[str, int, str, list[str], str]:
-    filter_key = "reviews_filter_bar" if key_prefix == "feed" else f"{key_prefix}_filter_bar"
+    filter_key = (
+        "reviews_filter_bar" if key_prefix == "feed" else f"{key_prefix}_filter_bar"
+    )
     with st.container(key=filter_key):
-        st.markdown(f'<div class="section-title">{escape(title)}</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="section-title">{escape(title)}</div>', unsafe_allow_html=True
+        )
         with st.container(border=True):
             column_spec = [2, 1, 1, 1.4, 1.2] if include_country else [2, 1, 1, 1.4]
             cols = st.columns(column_spec, gap="medium", vertical_alignment="bottom")
@@ -1239,14 +1384,26 @@ def render_filters(
                         if include_country
                         else "Search product, category, merchant, or review..."
                     ),
+                    help="Results update automatically as you type.",
                     key=f"{key_prefix}_search",
                 )
             with cols[1]:
-                limit = st.slider("Limit", min_value=4, max_value=40, value=16, step=4, key=f"{key_prefix}_limit")
+                limit = st.slider(
+                    "Limit",
+                    min_value=4,
+                    max_value=40,
+                    value=16,
+                    step=4,
+                    key=f"{key_prefix}_limit",
+                )
             with cols[2]:
-                media_filter = st.selectbox("Type", ["All", "Images", "Videos"], key=f"{key_prefix}_type")
+                media_filter = st.selectbox(
+                    "Type", ["All", "Images", "Videos"], key=f"{key_prefix}_type"
+                )
             with cols[3]:
-                category_filter = st.multiselect("Category", PRODUCT_CATEGORIES, key=f"{key_prefix}_categories")
+                category_filter = st.multiselect(
+                    "Category", PRODUCT_CATEGORIES, key=f"{key_prefix}_categories"
+                )
             if include_country:
                 country_options = country_options_from_posts(posts)
                 current_country = st.session_state.get(f"{key_prefix}_country", "All")
@@ -1267,9 +1424,10 @@ def render_filters(
 
 
 def post_matches_search(post: dict[str, Any], search: str) -> bool:
-    if not search:
+    normalized_search = " ".join(search.split()).casefold()
+    if not normalized_search:
         return True
-    query = search.casefold()
+    search_terms = normalized_search.split()
     searchable_values = [
         post_title(post),
         post.get("product_name"),
@@ -1278,7 +1436,10 @@ def post_matches_search(post: dict[str, Any], search: str) -> bool:
         post.get("purchase_country"),
         post.get("caption"),
     ]
-    return any(query in str(value or "").casefold() for value in searchable_values)
+    searchable_text = " ".join(
+        str(value or "") for value in searchable_values
+    ).casefold()
+    return all(term in searchable_text for term in search_terms)
 
 
 def filter_posts(
@@ -1295,9 +1456,13 @@ def filter_posts(
     elif media_filter == "Videos":
         filtered = [post for post in filtered if post.get("file_type") in VIDEO_TYPES]
     if category_filter:
-        filtered = [post for post in filtered if post.get("product_category") in category_filter]
+        filtered = [
+            post for post in filtered if post.get("product_category") in category_filter
+        ]
     if country_filter != "All":
-        filtered = [post for post in filtered if post.get("purchase_country") == country_filter]
+        filtered = [
+            post for post in filtered if post.get("purchase_country") == country_filter
+        ]
     if limit is not None:
         filtered = filtered[:limit]
     return filtered
@@ -1361,7 +1526,9 @@ def render_selected_post() -> None:
         return
 
     st.divider()
-    st.markdown('<div class="section-title">Review details</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-title">Review details</div>', unsafe_allow_html=True
+    )
 
     payload, error = cached_get_json(
         st.session_state.api_base_url,
@@ -1385,7 +1552,9 @@ def render_selected_post() -> None:
             st.subheader(post_title(post))
             st.markdown(product_details_html(post), unsafe_allow_html=True)
 
-            owns_post = st.session_state.get("access_token") and post.get("user_id") == current_user.get("id")
+            owns_post = st.session_state.get("access_token") and post.get(
+                "user_id"
+            ) == current_user.get("id")
             if owns_post:
                 danger_col, clear_col = st.columns(2)
                 with danger_col:
@@ -1416,20 +1585,32 @@ def render_selected_post() -> None:
                     label_visibility="visible",
                 )
             created_comment = None
-            if st.session_state.get("access_token"):
-                with st.form(f"comment_form_{post_id}", clear_on_submit=True):
-                    content = st.text_area("Add a comment", max_chars=500, height=130, placeholder="Share your thoughts...")
-                    submitted = st.form_submit_button("➤", help="Post comment")
-                if submitted:
-                    created_comment = create_comment(post_id, content)
-            else:
-                st.info("Login to add a comment.")
+            author_hint = (
+                f"Posting as {user_display_name(current_user)}"
+                if st.session_state.get("access_token")
+                else "Posting as Anonymous user. Anonymous comments cannot be edited or deleted."
+            )
+            st.caption(author_hint)
+            with st.form(f"comment_form_{post_id}", clear_on_submit=True):
+                content = st.text_area(
+                    "Add a comment",
+                    max_chars=500,
+                    height=130,
+                    placeholder="Share your thoughts...",
+                )
+                submitted = st.form_submit_button("➤", help="Post comment")
+            if submitted:
+                created_comment = create_comment(post_id, content)
 
             comments = fetch_comments(post_id)
             if sort_order == "Oldest first":
                 comments = list(reversed(comments))
             if created_comment:
-                comments = [comment for comment in comments if comment.get("id") != created_comment.get("id")]
+                comments = [
+                    comment
+                    for comment in comments
+                    if comment.get("id") != created_comment.get("id")
+                ]
                 if sort_order == "Oldest first":
                     comments.append(created_comment)
                 else:
@@ -1442,34 +1623,91 @@ def render_selected_post() -> None:
             comment_area = st.container(height=520, border=False)
             with comment_area:
                 for comment in comments:
-                    st.markdown(
-                        f"""
-                        <div class="comment-card">
-                            <div class="comment-author">{escape(comment.get("author_name", "User"))}</div>
-                            <div class="comment-body">{linkify_comment(comment.get("content", ""))}</div>
-                            <div class="media-sub">Commented on {format_date(comment.get("created_at"))}</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-
+                    like_count = int(comment.get("like_count") or 0)
+                    dislike_count = int(comment.get("dislike_count") or 0)
                     can_manage = (
                         st.session_state.get("access_token")
                         and comment.get("user_id") == current_user.get("id")
                         and is_edit_window_open(comment.get("can_edit_until"))
                     )
-                    if can_manage:
-                        with st.form(f"edit_comment_{comment['id']}"):
-                            edited = st.text_area("Edit comment", value=comment.get("content") or "", max_chars=500, height=110)
-                            save_col, delete_col, _ = st.columns([0.8, 0.8, 5.4])
-                            with save_col:
-                                save = st.form_submit_button("✓", help="Save comment")
-                            with delete_col:
-                                delete = st.form_submit_button("✕", help="Delete comment")
-                        if save and update_comment(comment["id"], edited):
-                            st.rerun()
-                        if delete and delete_comment(comment["id"]):
-                            st.rerun()
+                    can_delete_anonymous = (
+                        st.session_state.get("access_token")
+                        and comment.get("user_id") is None
+                        and owns_post
+                    )
+
+                    with st.container(border=True):
+                        header_col, delete_col = st.columns(
+                            [6, 0.6], vertical_alignment="top"
+                        )
+                        with header_col:
+                            st.markdown(
+                                f"""
+                                <div class="comment-author">{escape(comment.get("author_name", "User"))}</div>
+                                <div class="media-sub">Commented on {format_date(comment.get("created_at"))}</div>
+                                """,
+                                unsafe_allow_html=True,
+                            )
+                        with delete_col:
+                            if (can_manage or can_delete_anonymous) and st.button(
+                                " ",
+                                key=f"delete_comment_{comment['id']}",
+                                help="Delete comment",
+                                icon=":material/delete:",
+                                type="tertiary",
+                                width="content",
+                            ):
+                                if delete_comment(comment["id"]):
+                                    st.rerun()
+
+                        st.markdown(
+                            f'<div class="comment-body">{linkify_comment(comment.get("content", ""))}</div>',
+                            unsafe_allow_html=True,
+                        )
+
+                        reaction = comment.get("user_reaction")
+                        like_col, dislike_col, _ = st.columns([0.75, 0.75, 5.5])
+                        with like_col:
+                            if st.button(
+                                str(like_count),
+                                key=f"like_{comment['id']}",
+                                help="Like comment",
+                                icon=":material/thumb_up:",
+                                type="primary" if reaction == "like" else "secondary",
+                                width="content",
+                            ):
+                                if react_to_comment(comment["id"], "like"):
+                                    st.rerun()
+                        with dislike_col:
+                            if st.button(
+                                str(dislike_count),
+                                key=f"dislike_{comment['id']}",
+                                help="Dislike comment",
+                                icon=":material/thumb_down:",
+                                type="primary"
+                                if reaction == "dislike"
+                                else "secondary",
+                                width="content",
+                            ):
+                                if react_to_comment(comment["id"], "dislike"):
+                                    st.rerun()
+
+                        if can_manage:
+                            with st.form(f"edit_comment_{comment['id']}"):
+                                edited = st.text_area(
+                                    "Edit comment",
+                                    value=comment.get("content") or "",
+                                    max_chars=500,
+                                    height=110,
+                                )
+                                save = st.form_submit_button(
+                                    "Save",
+                                    help="Save comment",
+                                    icon=":material/check:",
+                                    width="content",
+                                )
+                            if save and update_comment(comment["id"], edited):
+                                st.rerun()
 
 
 def main() -> None:
@@ -1499,13 +1737,18 @@ def main() -> None:
         return
 
     with st.container(key="feed_page_shell"):
-        current_search = st.session_state.get("feed_search", "")
-        current_limit = st.session_state.get("feed_limit", 16)
-        posts = fetch_feed(current_search, current_limit)
-        search, limit, media_filter, category_filter, country_filter = render_filters(posts)
-        if search != current_search or limit != current_limit:
-            posts = fetch_feed(search, limit)
-        visible_posts = filter_posts(posts, media_filter, category_filter, country_filter, search=search)
+        posts = fetch_feed(limit=40)
+        search, limit, media_filter, category_filter, country_filter = render_filters(
+            posts
+        )
+        visible_posts = filter_posts(
+            posts,
+            media_filter,
+            category_filter,
+            country_filter,
+            search=search,
+            limit=limit,
+        )
         render_metrics(visible_posts)
         st.write("")
         render_feed(visible_posts)

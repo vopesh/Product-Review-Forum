@@ -1,13 +1,14 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
 
+
 class Settings(BaseSettings):
     # Project Metadata
     PROJECT_NAME: str = "Photo and Video Sharing API"
     VERSION: str = "1.0.0"
 
     # Database Configuration
-    DATABASE_URL: str 
+    DATABASE_URL: str
 
     # Auth Configuration
     AUTH_SECRET_KEY: str = "change-this-development-secret-key"
@@ -24,9 +25,10 @@ class Settings(BaseSettings):
         "http://localhost",
         "http://localhost:3000",
         "http://localhost:8000",
-        "http://0.0.0.0:8000"
+        "http://0.0.0.0:8000",
     ]
-    
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
 
 settings = Settings()

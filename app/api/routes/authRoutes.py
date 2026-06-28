@@ -4,10 +4,21 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppException
-from app.core.security import create_access_token, get_current_user, hash_password, verify_password
+from app.core.security import (
+    create_access_token,
+    get_current_user,
+    hash_password,
+    verify_password,
+)
 from app.database.db import get_async_session
 from app.models.models import User
-from app.schemas.auth_schemas import AuthResponse, Token, UserCreate, UserRead, UserUpdate
+from app.schemas.auth_schemas import (
+    AuthResponse,
+    Token,
+    UserCreate,
+    UserRead,
+    UserUpdate,
+)
 
 
 router = APIRouter()
