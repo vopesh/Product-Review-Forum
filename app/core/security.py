@@ -55,3 +55,12 @@ async def get_current_user(
         raise AppException(message="User not found or inactive", status_code=401)
 
     return user
+
+
+async def get_optional_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
+    session: AsyncSession = Depends(get_async_session),
+) -> Optional[User]:
+    if credentials is None:
+        return None
+    return await get_current_user(credentials, session)

@@ -28,6 +28,26 @@ async def init_db():
             await conn.execute(text("ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS purchase_country VARCHAR"))
             await conn.execute(text("ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS rating INTEGER"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_posts_user_id ON public.posts (user_id)"))
+            await conn.execute(text("ALTER TABLE public.comments ALTER COLUMN user_id DROP NOT NULL"))
+            await conn.execute(text("ALTER TABLE public.comments ADD COLUMN IF NOT EXISTS like_count INTEGER NOT NULL DEFAULT 0"))
+            await conn.execute(text("ALTER TABLE public.comments ADD COLUMN IF NOT EXISTS dislike_count INTEGER NOT NULL DEFAULT 0"))
+            await conn.execute(text("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint WHERE conname = 'ck_comments_like_count_non_negative'
+                    ) THEN
+                        ALTER TABLE public.comments
+                        ADD CONSTRAINT ck_comments_like_count_non_negative CHECK (like_count >= 0);
+                    END IF;
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint WHERE conname = 'ck_comments_dislike_count_non_negative'
+                    ) THEN
+                        ALTER TABLE public.comments
+                        ADD CONSTRAINT ck_comments_dislike_count_non_negative CHECK (dislike_count >= 0);
+                    END IF;
+                END $$;
+            """))
             await conn.execute(text("ALTER TABLE public.comments ENABLE ROW LEVEL SECURITY"))
             await conn.execute(text("""
                 DO $$
@@ -42,6 +62,20 @@ async def init_db():
                 END $$;
             """))
             await conn.execute(text("ALTER TABLE public.comments FORCE ROW LEVEL SECURITY"))
+            await conn.execute(text("ALTER TABLE public.comment_reactions ENABLE ROW LEVEL SECURITY"))
+            await conn.execute(text("""
+                DO $$
+                DECLARE
+                    app_role text := current_user;
+                BEGIN
+                    DROP POLICY IF EXISTS comment_reactions_backend_all ON public.comment_reactions;
+                    EXECUTE format(
+                        'CREATE POLICY comment_reactions_backend_all ON public.comment_reactions FOR ALL TO %I USING (true) WITH CHECK (true)',
+                        app_role
+                    );
+                END $$;
+            """))
+            await conn.execute(text("ALTER TABLE public.comment_reactions FORCE ROW LEVEL SECURITY"))
         logger.info("Database tables created successfully")
     except Exception as e:
         logger.error(f"Failed to create tables: {e}")
@@ -89,6 +123,7 @@ async def health_check():
         "/posts/me",
         "/posts/bulk-delete",
         "/posts/{post_id}/comments",
+        "/posts/comments/{comment_id}/reaction",
         "/posts/comments/{comment_id}",
         "/posts/{post_id}",
         "/auth/register",
