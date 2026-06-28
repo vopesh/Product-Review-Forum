@@ -28,9 +28,13 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def create_access_token(user_id: str) -> str:
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    expires_at = datetime.now(timezone.utc) + timedelta(
+        minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
+    )
     payload = {"sub": user_id, "exp": expires_at}
-    return jwt.encode(payload, settings.AUTH_SECRET_KEY, algorithm=settings.AUTH_ALGORITHM)
+    return jwt.encode(
+        payload, settings.AUTH_SECRET_KEY, algorithm=settings.AUTH_ALGORITHM
+    )
 
 
 async def get_current_user(
@@ -41,7 +45,11 @@ async def get_current_user(
         raise AppException(message="Authentication required", status_code=401)
 
     try:
-        payload = jwt.decode(credentials.credentials, settings.AUTH_SECRET_KEY, algorithms=[settings.AUTH_ALGORITHM])
+        payload = jwt.decode(
+            credentials.credentials,
+            settings.AUTH_SECRET_KEY,
+            algorithms=[settings.AUTH_ALGORITHM],
+        )
         user_id = payload.get("sub")
     except InvalidTokenError:
         raise AppException(message="Invalid authentication token", status_code=401)

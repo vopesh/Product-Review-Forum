@@ -28,6 +28,8 @@ if not logger.handlers:
     logger.addHandler(console_handler)
 
     # Rotating File Handler (1MB per file, keeps 5 backups)
-    file_handler = RotatingFileHandler(LOG_FILE, maxBytes=1024*1024, backupCount=5, encoding="utf-8")
+    file_handler = RotatingFileHandler(
+        LOG_FILE, maxBytes=1024 * 1024, backupCount=5, encoding="utf-8"
+    )
     file_handler.setFormatter(logging.Formatter(LOG_FORMAT))
     logger.addHandler(file_handler)

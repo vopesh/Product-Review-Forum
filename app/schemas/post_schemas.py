@@ -2,8 +2,13 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validat
 from datetime import date, datetime
 from typing import Literal, Optional, List
 
+
 class PostCreate(BaseModel):
-    caption: str = Field(min_length=1, max_length=500, description="The description for the photo or video")
+    caption: str = Field(
+        min_length=1,
+        max_length=500,
+        description="The description for the photo or video",
+    )
     product_name: str = Field(min_length=1, max_length=120)
     product_category: str = Field(min_length=1, max_length=80)
     purchase_source: str = Field(min_length=1, max_length=120)
@@ -11,7 +16,13 @@ class PostCreate(BaseModel):
     purchase_country: str = Field(min_length=1, max_length=80)
     rating: int = Field(ge=1, le=5)
 
-    @field_validator("caption", "product_name", "product_category", "purchase_source", "purchase_country")
+    @field_validator(
+        "caption",
+        "product_name",
+        "product_category",
+        "purchase_source",
+        "purchase_country",
+    )
     @classmethod
     def require_non_blank_text(cls, value: str) -> str:
         text = value.strip()
@@ -19,12 +30,15 @@ class PostCreate(BaseModel):
             raise ValueError("This field is required")
         return text
 
+
 class BulkDeleteRequest(BaseModel):
     post_ids: List[str]
+
 
 class DeleteResponse(BaseModel):
     status: str
     message: str
+
 
 class BulkDeleteResponse(BaseModel):
     status: str

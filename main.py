@@ -5,7 +5,7 @@ from pathlib import Path
 import uvicorn
 
 
-HOST = "0.0.0.0"
+HOST = "127.0.0.1"
 LOCAL_API_URL_FILE = Path(".local_api_url")
 
 
@@ -22,7 +22,9 @@ def find_available_port(start_port: int = 8000, max_attempts: int = 100) -> int:
     for port in range(start_port, start_port + max_attempts):
         if is_port_available(port):
             return port
-    raise RuntimeError(f"No free port found from {start_port} to {start_port + max_attempts - 1}")
+    raise RuntimeError(
+        f"No free port found from {start_port} to {start_port + max_attempts - 1}"
+    )
 
 
 def write_local_api_url(port: int) -> None:
