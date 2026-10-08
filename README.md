@@ -78,8 +78,8 @@ Users can upload product photos or videos, provide detailed metadata (category, 
 ### 1. Clone & Environment
 
 ```bash
-git clone https://github.com/your-username/fastapi-streamlit-product-review-forum.git
-cd fastapi-streamlit-product-review-forum
+git clone https://github.com/vopesh/Product-Review-Forum.git
+cd Product-Review-Forum
 ```
 
 ### 2. Configure Environment Variables
@@ -91,16 +91,20 @@ DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/dbname
 IMAGEKIT_PUBLIC_KEY=your_public_key
 IMAGEKIT_PRIVATE_KEY=your_private_key
 IMAGEKIT_URL_ENDPOINT=https://ik.imagekit.io/your_id
-AUTH_SECRET_KEY=your_super_secret_key
+AUTH_SECRET_KEY=<generated-secret-at-least-32-characters>
 ```
+
+Generate the signing secret locally with `python -c "import secrets; print(secrets.token_urlsafe(32))"` and place it only in your ignored `.env`. The application requires an explicit secret and supports HS256 for this shared-secret configuration. Do not paste generated credentials into commits, PRs, screenshots, or CI logs.
 
 ### 3. Install Dependencies
 
 Using **uv** (recommended):
 
 ```bash
-uv sync
+uv sync --locked
 ```
+
+The unpinned `requirements.txt` is a convenience list; it does not reproduce the reviewed lockfile. Prefer the locked uv setup.
 
 Using **pip**:
 

@@ -49,6 +49,7 @@ async def get_current_user(
             credentials.credentials,
             settings.AUTH_SECRET_KEY,
             algorithms=[settings.AUTH_ALGORITHM],
+            options={"require": ["exp", "sub"]},
         )
         user_id = payload.get("sub")
     except InvalidTokenError:

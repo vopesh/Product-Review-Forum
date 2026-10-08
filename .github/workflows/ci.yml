@@ -8,6 +8,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   backend-ci:
     name: backend-ci
@@ -26,21 +29,19 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Install dependencies
-        run: uv sync --all-extras --dev
+        run: uv sync --locked --all-extras --dev
 
       - name: Run Ruff lint
-        run: uv run ruff check .
+        run: uv run --locked ruff check .
 
       - name: Run Ruff format check
-        run: uv run ruff format --check .
+        run: uv run --locked ruff format --check .
 
       - name: Run mypy
-        run: uv run mypy .
+        run: uv run --locked mypy .
 
       - name: Run tests
-        run: uv run pytest
+        run: uv run --locked pytest
 
       - name: Run dependency security scan
-        run: |
-          uv pip install pip-audit
-          uv run pip-audit
+        run: uv run --locked pip-audit
