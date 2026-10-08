@@ -182,8 +182,8 @@ async def health_check():
         async with engine.connect() as connection:
             await connection.execute(text("SELECT 1"))
         checks["database"] = True
-    except Exception as e:
-        errors["database"] = str(e)
+    except Exception:
+        errors["database"] = "Database unavailable"
 
     expected_routes = {
         "/posts/upload",
